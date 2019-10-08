@@ -46,9 +46,10 @@ class Agent:
         s, a, r, s_next, d = data
         with torch.no_grad():
             if not d:
-                qv = self.target_model.predict(s_next)
-
-                opt_q = self.gamma * np.amax(qv.numpy())
+                qv = self.q_model.predict(s_next).numpy()
+                action = np.argmax(qv)
+                q_value = self.target_model.predict(s_next).squeeze().numpy()[action]
+                opt_q = self.gamma * q_value
                 r += opt_q
 
             qv = np.squeeze(self.q_model.predict(s).numpy())
