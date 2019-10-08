@@ -7,6 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from Rainbow.network import DQN
 from Rainbow.ExpReplay import ER
@@ -52,9 +53,10 @@ class Agent:
         s, a, r, s_next, d = data
         with torch.no_grad():
             if not d:
-                qv = self.target_model.predict(s_next)
-
-                opt_q = self.gamma * np.amax(qv.numpy())
+                qv = self.q_model.predict(s_next).numpy()
+                action = np.argmax(qv)
+                q_value = self.target_model.predict(s_next).squeeze().numpy()[action]
+                opt_q = self.gamma * q_value
                 r += opt_q
 
             qv = np.squeeze(self.q_model.predict(s).numpy())
@@ -87,7 +89,7 @@ class Agent:
             if done:
                 obs = self.env.reset()
                 ep_results.append(ep_sum)
-                self.writer.add_scalar("Vanilla/reward", ep_sum, i)
+                self.writer.add_scalar("DoubleQ/reward", ep_sum, i)
                 ep_sum = .0
             if i > self.batch_size * 3:
                 self.replay()
