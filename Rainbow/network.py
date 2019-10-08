@@ -17,7 +17,6 @@ class DQN:
             nn.Linear(32, out_dim)
         )
 
-        self.loss_fn = nn.MSELoss()
         self.lr = lr
         self.opt = optim.Adam(self.model.parameters(), lr=self.lr)
 
@@ -26,13 +25,16 @@ class DQN:
             state = np.expand_dims(state, axis=0)
         return self.model(torch.from_numpy(state).float())
 
-    def fit(self, state, y_true):
+    def fit(self, state, y_true, weights=None):
         y_pred = self.model(torch.from_numpy(state).float())
-        loss = self.loss_fn(y_pred, torch.from_numpy(y_true).float())
+        y_true = torch.from_numpy(y_true).float()
+        loss = (y_pred - y_true).pow(2).sum(dim=1)
+        loss *= torch.from_numpy(np.array(weights)).float()
 
         self.opt.zero_grad()
-        loss.backward()
+        loss.mean().backward()
         self.opt.step()
+        return loss.detach().numpy()
 
     def get_state(self):
         return self.model.state_dict()
