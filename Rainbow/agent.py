@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 import torch
 
-from Rainbow.network import DQN
+from Rainbow.network import DDDQN
 from Rainbow.ExpReplay import PER
 
 
@@ -36,12 +36,12 @@ class Agent:
         self.epsilon_f = lambda x: (max(1 - i / x, 0.01) for i in itertools.count())
         self.epsilon_gen = None
 
-        self.q_model = DQN(self.obs_n, self.act_n, lr=1e-2)
-        self.target_model = DQN(self.obs_n, self.act_n)
+        self.q_model = DDDQN(self.obs_n, self.act_n, lr=1e-2)
+        self.target_model = DDDQN(self.obs_n, self.act_n)
         self.__copy2target()
 
     def __copy2target(self):
-        self.target_model.model.load_state_dict(self.q_model.model.state_dict())
+        self.target_model.load_state_dict(self.q_model.state_dict())
 
     def act(self, obs):
         if np.random.sample() < next(self.epsilon_gen):
@@ -69,8 +69,10 @@ class Agent:
         samples = np.array(list(map(self.__count_rew, samples)))
         x = samples[:, :self.obs_n]
         y = samples[:, self.obs_n:]
+        weights = np.array(weights)
         tderrors = self.q_model.fit(x, y, weights=weights)
         self.replay_buffer.update(indices=indices, tderrors=tderrors)
+        return tderrors.mean() / weights.mean()
 
     def train(self, steps: int):
         self.epsilon_gen = self.epsilon_f(steps // 2)
@@ -78,6 +80,7 @@ class Agent:
         obs = self.env.reset()
         steps += self.batch_size * 3
 
+        losses = []
         ep_results = []
         ep_sum = .0
 
@@ -103,11 +106,12 @@ class Agent:
                 ep_results.append(ep_sum)
                 ep_sum = .0
             if i > self.batch_size * 3:
-                self.replay()
+                loss = self.replay()
+                losses.append(loss)
             if i % self.copy_every == 0:
                 self.__copy2target()
 
-        return ep_results
+        return ep_results, losses
 
     def show(self):
         obs = self.env.reset()
