@@ -14,7 +14,14 @@ from Rainbow.ExpReplay import PER
 
 
 class Agent:
-    def __init__(self, gym_env: str, gamma: float = 0.99, batch_size: int = 100, copy_every: int = 500):
+    def __init__(
+            self,
+            gym_env: str,
+            gamma: float = 0.99,
+            batch_size: int = 100,
+            copy_every: int = 500,
+            n_step: int = 2
+    ):
         self.env_name = gym_env
         self.env = gym.make(gym_env)
 
@@ -22,6 +29,7 @@ class Agent:
 
         self.obs_n = sum(self.env.observation_space.shape)
         self.act_n = self.env.action_space.n
+        self.n_step = n_step
 
         self.gamma = gamma
         self.copy_every = copy_every
@@ -56,7 +64,7 @@ class Agent:
                 qv = self.q_model.predict(s_next).numpy()
                 action = np.argmax(qv)
                 q_value = self.target_model.predict(s_next).squeeze().numpy()[action]
-                opt_q = self.gamma * q_value
+                opt_q = (self.gamma ** self.n_step) * q_value
                 r += opt_q
 
             qv = np.squeeze(self.q_model.predict(s).numpy())
@@ -81,16 +89,26 @@ class Agent:
         ep_sum = .0
 
         for i in tqdm(range(steps)):
+
+            # n-step
             action = self.act(obs)
             next_obs, rew, done, _ = self.env.step(action)
+            x = 1
+            cur_rew = rew
+            while x < self.n_step and not done:
+                obs = next_obs
+                action = self.act(obs)
+                next_obs, rew, done, _ = self.env.step(action)
+                cur_rew += rew
+                x += 1
+            ep_sum += rew
             self.replay_buffer.append((obs, action, rew, next_obs, done))
             obs = next_obs
-            ep_sum += rew
 
             if done:
                 obs = self.env.reset()
                 ep_results.append(ep_sum)
-                self.writer.add_scalar("PER/reward", ep_sum, i)
+                self.writer.add_scalar("NStep/reward", ep_sum, i)
                 ep_sum = .0
             if i > self.batch_size * 3:
                 self.replay()
