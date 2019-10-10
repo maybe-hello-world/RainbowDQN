@@ -33,19 +33,15 @@ class Agent:
         self.copy_every = copy_every
         self.batch_size = batch_size
 
-        self.epsilon_f = lambda x: (max(1 - i / x, 0.01) for i in itertools.count())
-        self.epsilon_gen = None
-
         self.q_model = DDDQN(self.obs_n, self.act_n, lr=1e-2)
         self.target_model = DDDQN(self.obs_n, self.act_n)
+
         self.__copy2target()
 
     def __copy2target(self):
         self.target_model.load_state_dict(self.q_model.state_dict())
 
     def act(self, obs):
-        if np.random.sample() < next(self.epsilon_gen):
-            return np.random.randint(0, self.act_n)
         with torch.no_grad():
             q_values = self.q_model.predict(obs)
             return np.argmax(q_values.numpy())
@@ -72,11 +68,9 @@ class Agent:
         weights = np.array(weights)
         tderrors = self.q_model.fit(x, y, weights=weights)
         self.replay_buffer.update(indices=indices, tderrors=tderrors)
-        return tderrors.mean() / weights.mean()
+        return tderrors.sum() / weights.sum()
 
     def train(self, steps: int):
-        self.epsilon_gen = self.epsilon_f(steps // 2)
-
         obs = self.env.reset()
         steps += self.batch_size * 3
 
@@ -92,8 +86,8 @@ class Agent:
             x = 1
             cur_rew = rew
             while x < self.n_step and not done:
-                obs = next_obs
-                action = self.act(obs)
+                cur_obs = next_obs
+                action = self.act(cur_obs)
                 next_obs, rew, done, _ = self.env.step(action)
                 cur_rew += rew
                 x += 1
@@ -114,6 +108,7 @@ class Agent:
         return ep_results, losses
 
     def show(self):
+        self.q_model.train(False)
         obs = self.env.reset()
         while True:
             act = self.act(obs)
