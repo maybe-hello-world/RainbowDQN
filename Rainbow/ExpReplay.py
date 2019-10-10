@@ -22,8 +22,8 @@ class ER:
 class PER(ER):
     def __init__(self, size: int = 10000):
         super().__init__(size)
-        self.alpha = 0.01
-        self.beta = 0.01
+        self.alpha = 0.5
+        self.beta = 0.5
 
     def append(self, data: Tuple[np.ndarray, int, float, np.ndarray, bool]):
         """(s, a, r, s', done)"""
