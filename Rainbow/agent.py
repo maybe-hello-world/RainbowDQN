@@ -89,7 +89,7 @@ class Agent:
         actions = torch.from_numpy(actions).long()
         rewards = torch.from_numpy(rewards).float()
         next_states = torch.from_numpy(next_states).float()
-        dones = torch.from_numpy(dones).float()
+        dones = torch.from_numpy(np.array(dones, dtype=np.uint8)).float()
 
         probs = self.q_model.predict(states)
         probs_a = probs[range(self.batch_size), actions]
