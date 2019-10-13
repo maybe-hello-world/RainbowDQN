@@ -93,6 +93,7 @@ class Agent:
 
         probs = self.q_model.predict(states)
         probs_a = probs[range(self.batch_size), actions]
+        probs_a = probs_a + torch.tensor(0.0001)  # zero from softmax, wtf
 
         with torch.no_grad():
             next_probs = self.q_model.predict(next_states)
