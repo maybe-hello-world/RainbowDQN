@@ -10,7 +10,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from Rainbow.network import DQN
-from Rainbow.ExpReplay import ER
+from Rainbow.ExpReplay import PER
 
 
 class Agent:
@@ -18,7 +18,7 @@ class Agent:
         self.env_name = gym_env
         self.env = gym.make(gym_env)
 
-        self.replay_buffer = ER()
+        self.replay_buffer = PER()
 
         self.obs_n = sum(self.env.observation_space.shape)
         self.act_n = self.env.action_space.n
@@ -64,11 +64,12 @@ class Agent:
         return np.concatenate([s, qv])
 
     def replay(self):
-        samples = self.replay_buffer.sample(size=self.batch_size)
+        indices, samples, weights = self.replay_buffer.sample(size=self.batch_size)
         samples = np.array(list(map(self.__count_rew, samples)))
         x = samples[:, :self.obs_n]
         y = samples[:, self.obs_n:]
-        self.q_model.fit(x, y)
+        tderrors = self.q_model.fit(x, y, weights=weights)
+        self.replay_buffer.update(indices=indices, tderrors=tderrors)
 
     def train(self, steps: int):
         self.epsilon_gen = self.epsilon_f(steps // 2)
@@ -89,7 +90,7 @@ class Agent:
             if done:
                 obs = self.env.reset()
                 ep_results.append(ep_sum)
-                self.writer.add_scalar("DoubleQ/reward", ep_sum, i)
+                self.writer.add_scalar("PER/reward", ep_sum, i)
                 ep_sum = .0
             if i > self.batch_size * 3:
                 self.replay()
