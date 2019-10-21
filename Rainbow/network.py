@@ -14,7 +14,14 @@ class DDDQN(nn.Module):
     def __call__(self, *inp, **kwargs) -> typing.Any:
         return super().__call__(*inp, **kwargs)
 
-    def __init__(self, inp_dim: int, V_min: float, V_max: float, out_dim: int, lr: float = 1e-3, num_atoms: int = 51):
+    def __init__(
+            self, inp_dim: int,
+            out_dim: int,
+            V_min: float = -10.0,
+            V_max: float = 10.0,
+            lr: float = 1e-3,
+            num_atoms: int = 51,
+            noisy: bool = True):
         """Input: (1, inp_dim)"""
         super().__init__()
 
@@ -25,19 +32,26 @@ class DDDQN(nn.Module):
         self.inp_dim = inp_dim
         self.out_dim = out_dim
 
-        self.features = nn.Linear(inp_dim, 128)
+        self.noisy = noisy
+        if noisy:
+            wL = NoisyDense
+        else:
+            wL = nn.Linear
 
-        self.adv1 = NoisyDense(128, 128)
-        self.adv2 = NoisyDense(128, out_dim * num_atoms)
+        self.fea1 = nn.Linear(inp_dim, 256)
+        self.fea2 = nn.Linear(256, 128)
 
-        self.val1 = NoisyDense(128, 128)
-        self.val2 = NoisyDense(128, num_atoms)
+        self.adv1 = wL(128, 128)
+        self.adv2 = wL(128, out_dim * num_atoms)
+
+        self.val1 = wL(128, 128)
+        self.val2 = wL(128, num_atoms)
 
         self.lr = lr
         self.opt = optim.Adam(self.parameters(), lr=self.lr)
 
     def predict(self, state: torch.Tensor):
-        state = f.relu(self.features(state))
+        state = f.relu(self.fea2(f.relu(self.fea1(state))))
         advantage = self.adv2(f.relu(self.adv1(state)))
         value = self.val2(f.relu(self.val1(state)))
 
@@ -49,7 +63,8 @@ class DDDQN(nn.Module):
         return q
 
     def reset_noise(self):
-        self.adv1.reset_noise()
-        self.adv2.reset_noise()
-        self.val1.reset_noise()
-        self.val2.reset_noise()
+        if self.noisy:
+            self.adv1.reset_noise()
+            self.adv2.reset_noise()
+            self.val1.reset_noise()
+            self.val2.reset_noise()

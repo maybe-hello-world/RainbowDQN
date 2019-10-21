@@ -8,10 +8,12 @@ agent = Agent(
     V_min=-10.0,
     V_max=10.0,
     batch_size=32,
-    copy_every=100,
-    n_step=3,
+    copy_every=500,
+    play_before_learn=1000,
+    n_step=2,
     lr=1e-3,
-    num_atoms=51
+    num_atoms=51,
+    noisy=False
 )
 results, losses = agent.train(5000)
 

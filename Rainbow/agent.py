@@ -24,7 +24,8 @@ class Agent:
             batch_size: int = 100,
             copy_every: int = 500,
             n_step: int = 2,
-            lr: float = 1e-3
+            lr: float = 1e-3,
+            noisy: bool = True
     ):
         self.env_name = gym_env
         self.env = gym.make(gym_env)
@@ -35,12 +36,20 @@ class Agent:
         self.support = torch.linspace(V_min, V_max, num_atoms)
         self.dz = (self.V_max - self.V_min) / (self.num_atoms - 1)
 
-        self.replay_buffer = PER()
+        self.replay_buffer = PER(self.env.observation_space.shape)
         self.pbl = play_before_learn
+        self.noisy = noisy
 
         self.obs_n = sum(self.env.observation_space.shape)
         self.act_n = self.env.action_space.n
         self.n_step = n_step
+
+        epsilon_start = 1.0
+        epsilon_final = 0.01
+        self.epsilon_decay = lambda: 500
+        self.epsilon = lambda frame_idx: epsilon_final + (epsilon_start - epsilon_final) \
+                                         * np.exp(-1. * frame_idx / self.epsilon_decay())
+        self.frame_idx = 0
 
         self.gamma = gamma
         self.copy_every = copy_every
@@ -48,8 +57,13 @@ class Agent:
 
         self.writer = SummaryWriter()
 
-        self.q_model = DDDQN(inp_dim=self.obs_n, out_dim=self.act_n, lr=lr, V_min=V_min, V_max=V_max, num_atoms=num_atoms)
-        self.target_model = DDDQN(inp_dim=self.obs_n, out_dim=self.act_n, V_min=V_min, V_max=V_max, num_atoms=num_atoms)
+        self.q_model = DDDQN(
+            inp_dim=self.obs_n, out_dim=self.act_n, lr=lr, V_min=V_min, V_max=V_max, num_atoms=num_atoms, noisy=self.noisy
+        )
+        self.target_model = DDDQN(
+            inp_dim=self.obs_n, out_dim=self.act_n, V_min=V_min, V_max=V_max, num_atoms=num_atoms, noisy=self.noisy
+        )
+
         self.__copy2target()
 
     def __del__(self):
@@ -58,7 +72,9 @@ class Agent:
     def __copy2target(self):
         self.target_model.load_state_dict(self.q_model.state_dict())
 
-    def act(self, obs: torch.Tensor):
+    def act(self, obs: torch.Tensor, train: bool = True):
+        if not self.noisy and train and np.random.randn() < self.epsilon(self.frame_idx):
+            return np.random.randint(0, self.act_n)
         with torch.no_grad():
             dist = self.q_model.predict(obs.float())
             dist = dist * self.support
@@ -66,13 +82,14 @@ class Agent:
             return action
 
     def replay(self):
-        indices, samples, weights = self.replay_buffer.sample(size=self.batch_size)
+        data = self.replay_buffer.sample(batch_size=self.batch_size)
+        indices, states, actions, rewards, next_states, dones, weights = data
 
-        states = torch.from_numpy(np.array([i[0] for i in samples])).float()
-        actions = torch.from_numpy(np.array([i[1] for i in samples])).long()
-        rewards = torch.from_numpy(np.array([i[2] for i in samples])).float()
-        next_states = torch.from_numpy(np.array([i[3] for i in samples])).float()
-        dones = torch.from_numpy(np.array([i[4] for i in samples])).float()
+        states = torch.from_numpy(states).float()
+        actions = torch.from_numpy(actions).long()
+        rewards = torch.from_numpy(rewards).float()
+        next_states = torch.from_numpy(next_states).float()
+        dones = torch.from_numpy(dones).float()
 
         probs = self.q_model.predict(states)
         probs_a = probs[range(self.batch_size), actions]
@@ -81,7 +98,7 @@ class Agent:
             next_probs = self.q_model.predict(next_states)
             dist = self.support.expand_as(next_probs) * next_probs
             ns_a = dist.sum(dim=2).argmax(dim=1)
-            self.target_model.reset_noise()
+            if self.noisy: self.target_model.reset_noise()
             next_probs = self.target_model.predict(next_states)  # double q learning
             next_probs_a = next_probs[range(self.batch_size), ns_a]
 
@@ -117,12 +134,13 @@ class Agent:
         obs = self.env.reset()
         steps += self.pbl
 
+        self.epsilon_decay = lambda: steps // 4
+
         losses = []
         ep_results = []
         ep_sum = .0
 
         for i in tqdm(range(steps)):
-
             # n-step
             action = self.act(torch.from_numpy(obs).unsqueeze(0))
             next_obs, rew, done, _ = self.env.step(action)
@@ -144,6 +162,7 @@ class Agent:
                 self.writer.add_scalar("Rainbow/reward", ep_sum, i)
                 ep_sum = .0
             if i > self.pbl:
+                self.frame_idx += 1
                 loss = self.replay()
                 self.writer.add_scalar("Rainbow/loss", loss, i)
                 losses.append(loss)
