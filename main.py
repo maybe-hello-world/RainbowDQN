@@ -3,8 +3,8 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 sns.set(style="darkgrid")
 
-agent = Agent("CartPole-v1", batch_size=50, copy_every=64)
-results, losses = agent.train(8192)
+agent = Agent("CartPole-v1", batch_size=32, copy_every=50, n_step=1)
+results, losses = agent.train(2048)
 
 fig, ax = plt.subplots(2, 1)
 sns.lineplot(x=range(len(results)), y=results, ax=ax[0])

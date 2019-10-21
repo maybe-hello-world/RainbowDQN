@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as f
+
+from Rainbow.NoiseLayer import NoisyDense
 
 import typing
 
@@ -17,23 +20,13 @@ class DDDQN(nn.Module):
         """Input: (1, inp_dim)"""
         super().__init__()
 
-        self.features = nn.Sequential(
-            nn.Linear(inp_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU()
-        )
+        self.features = nn.Linear(inp_dim, 128)
 
-        self.advantage = nn.Sequential(
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, out_dim)
-        )
-        self.value = nn.Sequential(
-            nn.Linear(128, 32),
-            nn.ReLU(),
-            nn.Linear(32, 1)
-        )
+        self.adv1 = NoisyDense(128, 128)
+        self.adv2 = NoisyDense(128, out_dim)
+
+        self.val1 = NoisyDense(128, 128)
+        self.val2 = NoisyDense(128, 1)
 
         self.lr = lr
         self.opt = optim.Adam(self.parameters(), lr=self.lr)
@@ -42,10 +35,16 @@ class DDDQN(nn.Module):
         if single:
             state = np.expand_dims(state, axis=0)
         state = torch.from_numpy(state).float()
-        state = self.features(state)
-        value = self.value(state)
-        advantage = self.advantage(state)
+        state = f.relu(self.features(state))
+        advantage = self.adv2(f.relu(self.adv1(state)))
+        value = self.val2(f.relu(self.val1(state)))
         return advantage + value - advantage.mean()
+
+    def reset_noise(self):
+        self.adv1.reset_noise()
+        self.adv2.reset_noise()
+        self.val1.reset_noise()
+        self.val2.reset_noise()
 
     def fit(self, state, y_true, weights=None):
         y_pred = self.predict(state, single=False)
@@ -56,4 +55,7 @@ class DDDQN(nn.Module):
         self.opt.zero_grad()
         loss.mean().backward()
         self.opt.step()
+
+        self.reset_noise()
+
         return loss.detach().numpy()
